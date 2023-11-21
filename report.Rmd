@@ -1,0 +1,129 @@
+---
+title: "r_project_2"
+author: "Michil Trofimov"
+date: "2023-11-21"
+output: html_document
+---
+
+# Libraries
+
+```{r library, message=FALSE}
+library(data.table) # for faster data upload
+library(ggplot2)
+library(dplyr)
+library(dlookr) # for easier EDA
+library(flextable) # for more beautiful tables
+```
+
+```{r, include=FALSE}
+main_dir <- dirname(rstudioapi::getSourceEditorContext()$path) 
+setwd(main_dir)
+```
+
+
+# Dataset description
+
+Данный датасет содержит информацию о полевых испытаниях ~300 сортов (id) сои в 2 локациях в течение 5 лет. Измерялись productivity (г/м^2), oil_content, protein_content (в процентах) и vegetation_period (время в днях от всхода до сбора). Кроме того известны форма листьев (leaf_shape), группа созревания (maturation_group, чем больше тем более позднеспелый), группа цветения (flowering_group), цвет опушения (pubescence_colour), цвет венчика (corolla_colour), страна происхождения (origin), полегание (lodging_type), тип роста (growth_type, индетерминантный - цветёт до сбора, детерминантный - цветёт один раз). 
+
+2943 observations and 16 columns.
+
+# Exploratory Data Analysis
+
+## Analyse NA observations and outliers
+
+```{r upload data, include=FALSE}
+df = fread('soybean - soybean.csv', key='id', na.strings = c('',NA))
+df = df[,-1]
+```
+
+```{r, echo=FALSE}
+diagnose(df) %>% flextable()
+```
+
+We see that almost a half of observations are missing in numerical variables. Other than that, there are 108 missing observations in `origin` features.
+
+First, we need to factorize id, leaf_shape, maturation_group, lodging_type, growth_type, flowering_group, pubescence_colour, corolla_colour, origin, site, year. 
+
+Second, check missing observations in `origin`.
+
+Third, remove missing observations in numerical features.
+
+Fourth, analyse outliers.
+
+1. Factorization 
+
+```{r}
+df = df %>%
+  mutate(across(c('id', 'leaf_shape', 'maturation_group', 'lodging_type', 'growth_type', 'flowering_group', 'pubescence_colour', 'corolla_colour', 'origin', 'site', 'year'), as.factor))
+```
+
+2. NA in `origin`
+
+Check missing observations in `origin`
+
+```{r, echo=FALSE}
+df[!complete.cases(df$origin)] %>% head %>% flextable() %>% autofit
+```
+
+We can notice that some observations have NA in `origin` column but not in numerical columns. It is pretty crucial, that is why we keep them. Thus, drop observations with NAs in `origin` and numerical columns
+
+```{r, include=FALSE}
+na_origin = df[!complete.cases(df$origin)]
+na_origin_num_columns =  na_origin[!complete.cases(na_origin$productivity)]
+v1_na_origin_num_columns = na_origin_num_columns$V1
+df = df[!rownames(df) %in% v1_na_origin_num_columns]
+```
+
+3. NA in numerical columns
+
+It would be more conservative to drop NA observations. We can impute them with mean of a breed (`id`), but some breeds have a lot of missing observations e.g. `id` = 1 has 7/9 NA in `productivity` column. And it is not crucial to fill NA, if a breed has very similar values in numerical column, for example: `id` = 8 6/8 NA in `productivity` but remaining two values are 51 and 53, mean = 52.
+
+Due to that, let's drop missing values by `productivity` column.
+
+```{r, include=FALSE}
+df = df[complete.cases(df$productivity)]
+```
+
+
+4. Analysis of outliers
+
+Check general descriptive statistics of numerical columns
+
+```{r, echo=FALSE}
+diagnose_numeric(df) %>% flextable()
+```
+
+Visualise numerical columns
+
+```{r, echo=FALSE}
+num_columns <- select(df, productivity, vegetation_period, protein_content, oil_content)
+plot(num_columns)
+```
+
+How outliers affect our variables? 
+
+```{r, echo=FALSE}
+diagnose_outlier(df) %>%
+  filter(outliers_cnt > 0) %>% flextable()
+```
+
+In all three variables outliers almost do not affect mean. These can be explained by the fact that outliers come from different breeds of plants, for example: extremely low producing breeds will generally give low `productivity` numbers.
+
+## Feature analysis
+
+```{r,echo=FALSE}
+df %>% 
+  correlate() %>% 
+  plot()
+```
+
+
+
+```{r}
+diagnose_category(df) %>% flextable()
+```
+
+```{r}
+df %>% group_by()
+```
+
