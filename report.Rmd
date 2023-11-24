@@ -1,6 +1,6 @@
 ---
 title: "r_project_2"
-author: "Michil Trofimov"
+author: "Michil Trofimov, Anastasia Gorabarenko"
 date: "2023-11-21"
 output: html_document
 ---
@@ -8,14 +8,21 @@ output: html_document
 # Libraries
 
 ```{r library, message=FALSE}
+#if you don' have these new libraries, please uncomment (Shift+Ctrl+C) next 3 strings:
+# install.packages("data.table")
+# install.packages("dlookr")
+# install.packages("flextable")
 library(data.table) # for faster data upload
 library(ggplot2)
 library(dplyr)
+library(car)
+library(performance)
 library(dlookr) # for easier EDA
 library(flextable) # for more beautiful tables
+dplyr::filter
 ```
 
-```{r, include=FALSE}
+```{min r, include=FALSE}
 main_dir <- dirname(rstudioapi::getSourceEditorContext()$path) 
 setwd(main_dir)
 ```
@@ -32,7 +39,7 @@ setwd(main_dir)
 ## Analyse NA observations and outliers
 
 ```{r upload data, include=FALSE}
-df = fread('soybean - soybean.csv', key='id', na.strings = c('',NA))
+df = fread('soybean.csv', key='id', na.strings = c('',NA))
 df = df[,-1]
 ```
 
@@ -123,7 +130,60 @@ df %>%
 diagnose_category(df) %>% flextable()
 ```
 
-```{r}
-df %>% group_by()
+# Anova analysis
+## First ANOVA
+```{r Anova1_plot, plotfig.align="center", fig.height=5, fig.width=7, echo=FALSE}
+ggplot(df, aes(x = flowering_group, y = productivity)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Productivity by Flowering Group",
+       x = "Flowering Group",
+       y = "Productivity")
+ggplot(df, aes(x = flowering_group, y = productivity, fill = flowering_group)) +
+  geom_violin() +
+  labs(title = "Violin Plot of Productivity by Flowering Group",
+       x = "Flowering Group",
+       y = "Productivity") +
+  theme_minimal()
 ```
 
+The distributions do not appear to be normal. To confirm this, re-evaluate using the Shapiro test. If the 'is_normal' column contains 'Normal,' it implies that we cannot reject the hypothesis that the data follows a normal distribution
+```{r shapiro }
+shapiro_test_result <- df %>%
+  group_by(flowering_group) %>%
+  summarise(p_value = shapiro.test(productivity)$p.value)
+shapiro_test_result$is_normal <- ifelse(shapiro_test_result$p_value < 0.05, "Not Normal", "Normal")
+
+# Вывод результатов теста
+print(shapiro_test_result)
+
+```
+The observations are independent, therefore have (mostly) the normal distribution. In this case we can use ANOVA for this data. Let's do it!
+```{r Anova }
+anova_result <- aov(productivity ~ flowering_group, data = df)
+check_normality(anova_result)
+
+check_homogeneity(anova_result)
+print('Anova result')
+summary(anova_result)
+```
+The ANOVA results show a significant difference among at least two of the groups in the variable 'productivity' based on the 'flowering_group' factor.
+The p-value (Pr(>F)) is highly significant (less than 0.001), indicating that there are significant differences among the groups.
+
+But residuals have not  normal distribution, in this case we will re-check our data with the Kruskal-Wallis test (It is a non-parametric alternative to one-way ANOVA that doesn't assume normality of the residuals)
+```{r tukey }
+kruskal_test_result <- kruskal.test(productivity ~ flowering_group, data = df)
+print(kruskal_test_result)
+```
+The p-value is extremely low (p-value < 2.2e-16), providing strong evidence to reject the null hypothesis. There are significant differences in the medians of productivity among the different groups defined by the variable flowering_group.
+
+ Since the Kruskal-Wallis test doesn't tell us which specific groups are different, check it via post hoc bonferroni test.
+**Post-Hoc Test:**
+```{r tukey , warning=FALSE}
+pairwise.wilcox.test(df$productivity, df$flowering_group, p.adjust.method = "bonferroni")
+
+```
+From the output of the Wilcoxon rank sum test with Bonferron correction, it follows that there are statistically significant differences in performance (productivity) between the different flowering group variants. The p-values are below the 0.05 innovativeness level for most pairs of groups.
+
+Specifically, p-values < 0.05 indicate that there is a statistically significant difference in performance between findings 2 and 4, 3 and 4, 3.5 and 4.5, and 4 and 5. p-values <0.001 indicates very high values. statistical originality for these images.
+
+Thus, it is possible to disable that the blooming_group group level affects productivity, and individual pairs of groups have characteristic significant differences.
