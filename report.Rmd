@@ -17,12 +17,13 @@ library(ggplot2)
 library(dplyr)
 library(car)
 library(performance)
+library(lme4)
 library(dlookr) # for easier EDA
 library(flextable) # for more beautiful tables
 dplyr::filter
 ```
 
-```{min r, include=FALSE}
+```{r main, include=FALSE}
 main_dir <- dirname(rstudioapi::getSourceEditorContext()$path) 
 setwd(main_dir)
 ```
@@ -187,3 +188,45 @@ From the output of the Wilcoxon rank sum test with Bonferron correction, it foll
 Specifically, p-values < 0.05 indicate that there is a statistically significant difference in performance between findings 2 and 4, 3 and 4, 3.5 and 4.5, and 4 and 5. p-values <0.001 indicates very high values. statistical originality for these images.
 
 Thus, it is possible to disable that the blooming_group group level affects productivity, and individual pairs of groups have characteristic significant differences.
+
+# Linear models
+## First model
+```{r l1 , warning=FALSE}
+lm_model_0 <- lm(productivity ~ protein_content, data = df)
+lm_model_1 <- lm(productivity ~ oil_content, data = df)
+lm_model <- lm(productivity ~ protein_content + oil_content, data = df)
+
+
+aic_lm0 <- AIC(lm_model_0)
+aic_lm1 <- AIC(lm_model_1)
+aic_lm <- AIC(lm_model)
+aic_lm_id <- AIC(lm_id_model)
+aic_mixed <- AIC(mixed_model)
+
+cat("AIC for Linear Model with only protein_content :", aic_lm0, "\n")
+cat("AIC for Linear Model with only oil_content:", aic_lm1, "\n")
+cat("AIC for Linear Mode with both factors:", aic_lm, "\n")
+```
+In this case, the model that includes both factors (protein_content and oil_content) has the smallest (though not by much) AIC value (13451.16), which means that it is preferable to models that include only one of these factors.
+We add id as a dummy variable to account for repeated measures and compare with a mixed model that includes individual ids as random effects, accounting for the correlation between repeated measures for the same id.
+```{r l2 , warning=FALSE}
+lm_id_model <- lm(productivity ~ protein_content + oil_content + factor(id), data = df)
+mixed_model <- lmer(productivity ~ protein_content + oil_content + (1 | id), data = df) 
+cat("AIC for Linear Model with ID:", aic_lm_id, "\n")
+cat("AIC for Mixed Model:", aic_mixed, "\n")
+
+
+```
+Thus, the Linear Model with ID has the best AIC score and provides more information compared to the others.
+
+Let's check with R step function for all this data:
+```{r l3 , warning=FALSE. echo= FALSE}
+full_model <- lm(productivity ~ protein_content + oil_content + factor(id), data = df)
+
+step_model <- step(full_model, direction = "both", trace = 0)
+
+summary(step_model)
+```
+Well, yes, the best call for such parameters was for Call:
+lm(formula = productivity ~ protein_content + oil_content + factor(id), 
+    data = df)
