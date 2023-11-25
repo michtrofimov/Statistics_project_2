@@ -132,7 +132,9 @@ diagnose_category(df) %>% flextable()
 ```
 
 # Anova analysis
+
 ## First ANOVA
+
 ```{r Anova1_plot, plotfig.align="center", fig.height=5, fig.width=7, echo=FALSE}
 ggplot(df, aes(x = flowering_group, y = productivity)) +
   geom_boxplot() +
