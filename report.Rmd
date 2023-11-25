@@ -148,6 +148,19 @@ ggplot(df, aes(x = flowering_group, y = productivity, fill = flowering_group)) +
 ```
 
 The distributions do not appear to be normal. To confirm this, re-evaluate using the Shapiro test. If the 'is_normal' column contains 'Normal,' it implies that we cannot reject the hypothesis that the data follows a normal distribution
+
+```{r number of observations in each group}
+ggplot(df, aes(x = flowering_group)) +
+  geom_bar()+
+  labs(title = "Number of observations in flowering gorups",
+       x = "Flowering Group",
+       y = "Number of observations") +
+  theme_classic()
+
+```
+
+We have uneven number of observations in flowering groups. It can reduce power of our ANOVA analysis, thus, it is better to stick to non-parametric Kruskal-Wallis test.
+
 ```{r shapiro }
 shapiro_test_result <- df %>%
   group_by(flowering_group) %>%
@@ -158,7 +171,11 @@ shapiro_test_result$is_normal <- ifelse(shapiro_test_result$p_value < 0.05, "Not
 print(shapiro_test_result)
 
 ```
-The observations are independent, therefore have (mostly) the normal distribution. In this case we can use ANOVA for this data. Let's do it!
+
+The observations are independent and we mostly have normal distributions. Test for homogeneity of variances between groups will likely show that there is no homogeneity, which is expected, as we have several groups which do not follow normal distribution. It will not introduce a massive bias, but we should be careful when interpreting results.
+
+In this case we can use ANOVA for this data. Let's do it!
+
 ```{r Anova }
 anova_result <- aov(productivity ~ flowering_group, data = df)
 check_normality(anova_result)
@@ -167,22 +184,28 @@ check_homogeneity(anova_result)
 print('Anova result')
 summary(anova_result)
 ```
+
 The ANOVA results show a significant difference among at least two of the groups in the variable 'productivity' based on the 'flowering_group' factor.
 The p-value (Pr(>F)) is highly significant (less than 0.001), indicating that there are significant differences among the groups.
 
 But residuals have not  normal distribution, in this case we will re-check our data with the Kruskal-Wallis test (It is a non-parametric alternative to one-way ANOVA that doesn't assume normality of the residuals)
+
 ```{r tukey }
 kruskal_test_result <- kruskal.test(productivity ~ flowering_group, data = df)
 print(kruskal_test_result)
 ```
+
 The p-value is extremely low (p-value < 2.2e-16), providing strong evidence to reject the null hypothesis. There are significant differences in the medians of productivity among the different groups defined by the variable flowering_group.
 
- Since the Kruskal-Wallis test doesn't tell us which specific groups are different, check it via post hoc bonferroni test.
+ Since the Kruskal-Wallis test doesn't tell us which specific groups are different, check it via post hoc pairwise Wilcoxon test with bonferroni correction.
+ 
 **Post-Hoc Test:**
+
 ```{r tukey , warning=FALSE}
 pairwise.wilcox.test(df$productivity, df$flowering_group, p.adjust.method = "bonferroni")
 
 ```
+
 From the output of the Wilcoxon rank sum test with Bonferron correction, it follows that there are statistically significant differences in performance (productivity) between the different flowering group variants. The p-values are below the 0.05 innovativeness level for most pairs of groups.
 
 Specifically, p-values < 0.05 indicate that there is a statistically significant difference in performance between findings 2 and 4, 3 and 4, 3.5 and 4.5, and 4 and 5. p-values <0.001 indicates very high values. statistical originality for these images.
@@ -190,7 +213,9 @@ Specifically, p-values < 0.05 indicate that there is a statistically significant
 Thus, it is possible to disable that the blooming_group group level affects productivity, and individual pairs of groups have characteristic significant differences.
 
 # Linear models
+
 ## First model
+
 ```{r l1 , warning=FALSE}
 lm_model_0 <- lm(productivity ~ protein_content, data = df)
 lm_model_1 <- lm(productivity ~ oil_content, data = df)
@@ -200,27 +225,35 @@ lm_model <- lm(productivity ~ protein_content + oil_content, data = df)
 aic_lm0 <- AIC(lm_model_0)
 aic_lm1 <- AIC(lm_model_1)
 aic_lm <- AIC(lm_model)
-aic_lm_id <- AIC(lm_id_model)
-aic_mixed <- AIC(mixed_model)
 
 cat("AIC for Linear Model with only protein_content :", aic_lm0, "\n")
 cat("AIC for Linear Model with only oil_content:", aic_lm1, "\n")
 cat("AIC for Linear Mode with both factors:", aic_lm, "\n")
 ```
+
 In this case, the model that includes both factors (protein_content and oil_content) has the smallest (though not by much) AIC value (13451.16), which means that it is preferable to models that include only one of these factors.
 We add id as a dummy variable to account for repeated measures and compare with a mixed model that includes individual ids as random effects, accounting for the correlation between repeated measures for the same id.
+
+
 ```{r l2 , warning=FALSE}
 lm_id_model <- lm(productivity ~ protein_content + oil_content + factor(id), data = df)
 mixed_model <- lmer(productivity ~ protein_content + oil_content + (1 | id), data = df) 
+
+aic_lm_id <- AIC(lm_id_model)
+aic_mixed <- AIC(mixed_model)
+
 cat("AIC for Linear Model with ID:", aic_lm_id, "\n")
 cat("AIC for Mixed Model:", aic_mixed, "\n")
 
-
+mixed_model <- lmer(productivity ~ protein_content + oil_content + (1 | id), data = df) 
+summary(mixed_model)
 ```
+
 Thus, the Linear Model with ID has the best AIC score and provides more information compared to the others.
 
 Let's check with R step function for all this data:
-```{r l3 , warning=FALSE. echo= FALSE}
+
+```{r l3 , warning=FALSE, echo= FALSE}
 full_model <- lm(productivity ~ protein_content + oil_content + factor(id), data = df)
 
 step_model <- step(full_model, direction = "both", trace = 0)
