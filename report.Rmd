@@ -12,7 +12,9 @@ output: html_document
 # install.packages("data.table")
 # install.packages("dlookr")
 # install.packages("flextable")
+# install.packages("pROC")
 library(data.table) # for faster data upload
+library(pROC)
 library(ggplot2)
 library(dplyr)
 library(car)
@@ -338,3 +340,51 @@ summary(step_model)
 Well, yes, the best call for such parameters was for Call:
 lm(formula = productivity ~ protein_content + oil_content + factor(id), 
     data = df)
+
+## Second model
+
+We want to create a model to predict site of yielding depend on other data.
+
+Fist, try to take all numerical data as model parameters:
+```{r glm_site_1 , warning=FALSE, echo= FALSE}
+df_without_na <- na.omit(df)
+glm_site <- glm(site ~ productivity + vegetation_period + protein_content + oil_content, family = binomial, data = df_without_na)
+summary(glm_site)
+```
+
+To estimate the classifier's ability of this model let's plot ROC curve (package pROC). 
+
+It tells about model quality: correct model on its ROC curve always has a point close to (0, 1).
+Another useful metric - AUC (Area under the ROC Curve). A properly working model has AUC close to 1.
+
+```{r roc_curve_1 , warning=FALSE, echo= FALSE}
+predicted_probs <- predict(glm_site, type = "response")
+roc_curve <- roc(df_without_na$site, predicted_probs)
+plot(roc_curve, col = "blue", main = "ROC Curve")
+auc(roc_curve)
+```
+ 
+AUC = 0.8 means that model works pretty correct.
+
+However, we are going to improve model predictive ability via adding new parameters: `growth_type`, `flowering_group`, 
+`maturation_group`, `leaf_shape`, `corolla_colour`, `pubescence_colour`.
+
+```{r glm_site_2 , warning=FALSE, echo= FALSE}
+glm_site2 <- glm(site ~ productivity + vegetation_period + protein_content + oil_content + growth_type + flowering_group + maturation_group + leaf_shape + corolla_colour + pubescence_colour, family = binomial, data = df_without_na)
+summary(glm_site2)
+```
+
+AIC of new model became smaller that means that new model now works better.
+
+Check how it affect the ROC-curve.
+```{r roc_curve_2 , warning=FALSE, echo= FALSE}
+predicted_probs <- predict(glm_site2, type = "response")
+roc_curve <- roc(df_without_na$site, predicted_probs)
+plot(roc_curve, col = "blue", main = "ROC Curve")
+auc(roc_curve)
+```
+
+AUC also become better. We can stop here because AUC=0.9015 means, 
+that model correctly predict site of yielding in 90 % of cases and can be useful.
+
+
