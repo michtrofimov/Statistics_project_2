@@ -1,13 +1,13 @@
 ---
 title: "r_project_2"
-author: "Michil Trofimov, Anastasia Gorabarenko"
+author: "Michil Trofimov, Anastasia Gorabarenko, Polina Vaganova"
 date: "2023-11-21"
 output: html_document
 ---
 
 # Libraries
 
-```{r library, message=FALSE}
+```{r library, echo=TRUE, message=FALSE, warning=FALSE}
 #if you don' have these new libraries, please uncomment (Shift+Ctrl+C) next 3 strings:
 # install.packages("data.table")
 # install.packages("dlookr")
@@ -18,9 +18,9 @@ library(dplyr)
 library(car)
 library(performance)
 library(lme4)
+library(corrplot)
 library(dlookr) # for easier EDA
 library(flextable) # for more beautiful tables
-dplyr::filter
 ```
 
 ```{r main, include=FALSE}
@@ -73,7 +73,7 @@ Check missing observations in `origin`
 df[!complete.cases(df$origin)] %>% head %>% flextable() %>% autofit
 ```
 
-We can notice that some observations have NA in `origin` column but not in numerical columns. It is pretty crucial, that is why we keep them. Thus, drop observations with NAs in `origin` and numerical columns
+We can notice that some observations have NA in `origin` column but not in numerical columns. It is pretty crucial, that is why we keep them. Thus, drop observations with NAs in both `origin` and numerical columns.
 
 ```{r, include=FALSE}
 na_origin = df[!complete.cases(df$origin)]
@@ -84,7 +84,7 @@ df = df[!rownames(df) %in% v1_na_origin_num_columns]
 
 3. NA in numerical columns
 
-It would be more conservative to drop NA observations. We can impute them with mean of a breed (`id`), but some breeds have a lot of missing observations e.g. `id` = 1 has 7/9 NA in `productivity` column. And it is not crucial to fill NA, if a breed has very similar values in numerical column, for example: `id` = 8 6/8 NA in `productivity` but remaining two values are 51 and 53, mean = 52.
+It would be more conservative to drop NA observations. We can impute them with mean of a breed (`id`), but some breeds have a lot of missing observations e.g. `id` = 1 has 7/9 NA in `productivity` column. And it is not crucial to fill NA, if a breed has very similar values in numerical column, for example: `id` = 8 has 6/8 NA in `productivity` but remaining two values are 51 and 53, mean = 52.
 
 Due to that, let's drop missing values by `productivity` column.
 
@@ -127,13 +127,13 @@ df %>%
 
 
 
-```{r}
+```{r echo=FALSE}
 diagnose_category(df) %>% flextable()
 ```
 
-# Anova analysis
+# Hypothesis checking
 
-## First ANOVA
+## First hypothesis
 
 ```{r Anova1_plot, plotfig.align="center", fig.height=5, fig.width=7, echo=FALSE}
 ggplot(df, aes(x = flowering_group, y = productivity)) +
@@ -163,7 +163,7 @@ ggplot(df, aes(x = flowering_group)) +
 
 We have uneven number of observations in flowering groups. It can reduce power of our ANOVA analysis, thus, it is better to stick to non-parametric Kruskal-Wallis test.
 
-```{r shapiro }
+```{r shapiro_1}
 shapiro_test_result <- df %>%
   group_by(flowering_group) %>%
   summarise(p_value = shapiro.test(productivity)$p.value)
@@ -178,7 +178,7 @@ The observations are independent and we mostly have normal distributions. Test f
 
 In this case we can use ANOVA for this data. Let's do it!
 
-```{r Anova }
+```{r Anova, echo=FALSE, message=FALSE, warning=FALSE}
 anova_result <- aov(productivity ~ flowering_group, data = df)
 check_normality(anova_result)
 
@@ -192,27 +192,100 @@ The p-value (Pr(>F)) is highly significant (less than 0.001), indicating that th
 
 But residuals have not  normal distribution, in this case we will re-check our data with the Kruskal-Wallis test (It is a non-parametric alternative to one-way ANOVA that doesn't assume normality of the residuals)
 
-```{r tukey }
+```{r kruskal_test_1, echo=FALSE, message=FALSE, warning=FALSE}
 kruskal_test_result <- kruskal.test(productivity ~ flowering_group, data = df)
 print(kruskal_test_result)
 ```
 
 The p-value is extremely low (p-value < 2.2e-16), providing strong evidence to reject the null hypothesis. There are significant differences in the medians of productivity among the different groups defined by the variable flowering_group.
-
- Since the Kruskal-Wallis test doesn't tell us which specific groups are different, check it via post hoc pairwise Wilcoxon test with bonferroni correction.
  
 **Post-Hoc Test:**
 
-```{r tukey , warning=FALSE}
-pairwise.wilcox.test(df$productivity, df$flowering_group, p.adjust.method = "bonferroni")
+Since the Kruskal-Wallis test doesn't tell us which specific groups are different, check it via post hoc pairwise Wilcoxon test with bonferroni correction (because of multiple comparisons). Let's see on the plot with resulting p-values.
+
+```{r posthoc1, echo=FALSE, message=FALSE, warning=FALSE}
+posthoc1 <- pairwise.wilcox.test(df$productivity, df$flowering_group, p.adjust.method = "bonferroni")
+pvals_posthoc1=posthoc1$p.value
+corrplot(as.matrix(pvals_posthoc1), is.corr=F, method="number", col = COL2('RdBu'), type = 'lower',tl.srt = 60, tl.cex=1.5, number.cex = 1.2, cl.cex = 1.2, col.lim = c(0, 1))
+```
+
+From the output of the Wilcoxon rank sum test with Bonferron correction, it follows that there are statistically significant differences in performance (productivity) between the different flowering group variants. The p-values are below the 0.05 for most pairs of groups.
+
+Specifically, p-values < 0.05 indicate that there is a statistically significant difference in performance between findings 2 and 1, 3 and 1, 3 and 1.5, 3.5 and 1, 3.5 and 1.5, 4 and 1, 4.5 and 1, 4.5 and 3, 5 and 2, 5 and 3-4.5. p-values=0 (extremely close to the 0) indicates very high significance values. 
+
+Thus, it is possible to disable that the blooming_group group level affects productivity, and individual pairs of groups have characteristic significant differences.
+
+## Second hypothesis
+
+Let's visualize how changes oil content in different maturation groups (the more group number the more late-maturing). 
+
+```{r Box_plot_test_2, echo=FALSE, fig.height=5, fig.width=7, message=FALSE, warning=FALSE, plotfig.align="center"}
+ggplot(df, aes(x = maturation_group, y = oil_content, fill = maturation_group)) +
+  geom_boxplot(outlier.color = adjustcolor("black", alpha.f = 0)) +
+  theme_classic() +
+  labs(title = "Boxplot of Oil Content by Maturation Group",
+       x = "Maturation Group",
+       y = "Oil Content") +
+  scale_fill_manual(values = c("#00BFFF", "#FFFF00",  "#00FF7F", "#F39C12", "#E74C3C"))
 
 ```
 
-From the output of the Wilcoxon rank sum test with Bonferron correction, it follows that there are statistically significant differences in performance (productivity) between the different flowering group variants. The p-values are below the 0.05 innovativeness level for most pairs of groups.
+After looking at the graph, we propose our second hypothesis: Oil Content is different among Maturation Groups.  
 
-Specifically, p-values < 0.05 indicate that there is a statistically significant difference in performance between findings 2 and 4, 3 and 4, 3.5 and 4.5, and 4 and 5. p-values <0.001 indicates very high values. statistical originality for these images.
+Firstly need to see on distrubutions shapes to choose correct way for hypothesis testing.
 
-Thus, it is possible to disable that the blooming_group group level affects productivity, and individual pairs of groups have characteristic significant differences.
+```{r violin_plot_2, echo=FALSE, fig.height=5, fig.width=7, message=FALSE, warning=FALSE, plotfig.align="center"}
+ggplot(df, aes(x = maturation_group, y = oil_content, fill = maturation_group)) +
+  geom_violin() +
+  labs(title = "Violin Plot of Productivity by Flowering Group",
+       x = "Flowering Group",
+       y = "Productivity") +
+  theme_minimal() +
+  labs(title = "Boxplot of Oil Content by Maturation Group",
+       x = "Maturation Group",
+       y = "Oil Content") +
+  scale_fill_manual(values = c("#00BFFF", "#FFFF00",  "#00FF7F", "#F39C12", "#E74C3C"))
+
+```
+
+Again, seems the distributions do not appear to be normal. To confirm this we will use the Shapiro test. If the 'is_normal' column contains 'Normal,' it implies that we cannot reject the hypothesis that the data follows a normal distribution. 
+
+```{r shapiro_2, echo=FALSE, message=FALSE, warning=FALSE}
+shapiro_test_result <- df %>%
+  group_by(maturation_group) %>%
+  summarise(p_value = shapiro.test(oil_content)$p.value)
+shapiro_test_result$is_normal <- ifelse(shapiro_test_result$p_value < 0.05, "Not Normal", "Normal")
+
+# Вывод результатов теста
+print(shapiro_test_result)
+
+```
+
+The observations are independent and mostly distributed not normal, thus, it is better to stick to non-parametric Kruskal-Wallis test. 
+Let's see on the Kruskal-Wallis test results.
+
+```{r kruskal_test_2, echo=FALSE, message=FALSE, warning=FALSE}
+kruskal_test_result <- kruskal.test(oil_content ~ maturation_group, data = df)
+print(kruskal_test_result)
+```
+
+The p-value is significantly low (p-value = 1.026e-15), providing strong evidence to reject the null hypothesis. There are significant differences in the means ranks of the Oil Content among the different Maturation Groups.
+
+**Post-Hoc Test:**
+
+Since the Kruskal-Wallis test doesn't tell us which specific groups are different, check it via post hoc pairwise Wilcoxon test with bonferroni correction (because of multiple comparisons). Let's see on the plot with resulting p-values.
+
+```{r posthoc2, echo=FALSE, message=FALSE, warning=FALSE}
+posthoc2 <- pairwise.wilcox.test(df$oil_content, df$maturation_group, p.adjust.method = "bonferroni")
+pvals_posthoc2=posthoc2$p.value
+corrplot(as.matrix(pvals_posthoc2),is.corr=F, method="number", col = COL2('RdBu'), type = 'lower',tl.srt = 60, tl.cex=1.5, number.cex = 1.5, cl.cex = 1.2, col.lim = c(0, 1))
+```
+
+From the output of the Wilcoxon rank sum test with Bonferron correction, it follows that there are statistically significant differences in Oil Content among some of Maturation Groups. 
+
+Specifically, p-values < 0.05 indicate that there is a statistically significant difference in mean ranks of the Oil Content between maturation groups 1 and 2, 1 and 3, 1 and 4, 5 and 2, 5 and 3, 5 and 4. p-values=0 (extremely close to the 0) indicates very high significance values. 
+
+Thus, it is possible to say that the Oil Maturation group level affects Oil Content, and individual pairs of groups have significant differences in Oil Content mean ranks.
 
 # Linear models
 
