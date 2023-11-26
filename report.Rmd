@@ -1,6 +1,5 @@
 ---
 title: "r_project_2"
-author: "Michil Trofimov, Anastasia Gorabarenko, Polina Vaganova"
 date: "2023-11-21"
 output: html_document
 ---
@@ -8,13 +7,13 @@ output: html_document
 # Libraries
 
 ```{r library, echo=TRUE, message=FALSE, warning=FALSE}
-#if you don' have these new libraries, please uncomment (Shift+Ctrl+C) next 3 strings:
+#if you don't have these new libraries, please uncomment (Shift+Ctrl+C) next 3 strings:
 # install.packages("data.table")
 # install.packages("dlookr")
 # install.packages("flextable")
 # install.packages("pROC")
 library(data.table) # for faster data upload
-library(pROC)
+library(pROC) # for ROC-AUC calculation
 library(ggplot2)
 library(dplyr)
 library(car)
@@ -94,6 +93,7 @@ Due to that, let's drop missing values by `productivity` column.
 df = df[complete.cases(df$productivity)]
 ```
 
+However, we will also use dataframe without NAs for the classification model (see section "Second model").
 
 4. Analysis of outliers
 
@@ -119,7 +119,7 @@ diagnose_outlier(df) %>%
 
 In all three variables outliers almost do not affect mean. These can be explained by the fact that outliers come from different breeds of plants, for example: extremely low producing breeds will generally give low `productivity` numbers.
 
-## Feature analysis
+Let's also have a look at correlations between numerical features.
 
 ```{r,echo=FALSE}
 df %>% 
@@ -127,45 +127,41 @@ df %>%
   plot()
 ```
 
-
-
-```{r echo=FALSE}
-diagnose_category(df) %>% flextable()
-```
+Highest correlation for `productivity` variable is with `oil_content` (r = 0.55). And highest negative correlation for the `productivity` is with `protein_content` (r = -0.45). It is surprising that plant with higher `protein_content` is expected to have less `productivity` according to the correlation.
 
 # Hypothesis checking
 
-## First hypothesis
+## ANOVA, Kruskal-Wallis
+
+### First hypothesis
+
+Let's check, whether mean `productivity` number differs between flowering groups.
 
 ```{r Anova1_plot, plotfig.align="center", fig.height=5, fig.width=7, echo=FALSE}
-ggplot(df, aes(x = flowering_group, y = productivity)) +
+ggplot(df, aes(x = flowering_group, y = productivity, fill = flowering_group)) +
   geom_boxplot() +
   labs(title = "Boxplot of Productivity by Flowering Group",
        x = "Flowering Group",
-       y = "Productivity")
+       y = "Productivity")+
+  theme_classic()
+
+```
+
+It appears that means are not the same for different flowering groups. Before performing further statistical analysis, we need to have a look at the distribution shape of `productivity ` in each flowering group. We can do it with violin plot.
+
+
+```{r violin, plotfig.align="center", fig.height=5, fig.width=7, echo=FALSE}
 ggplot(df, aes(x = flowering_group, y = productivity, fill = flowering_group)) +
   geom_violin() +
   labs(title = "Violin Plot of Productivity by Flowering Group",
        x = "Flowering Group",
        y = "Productivity") +
-  theme_minimal()
+  theme_classic()
 ```
 
 The distributions do not appear to be normal. To confirm this, re-evaluate using the Shapiro test. If the 'is_normal' column contains 'Normal,' it implies that we cannot reject the hypothesis that the data follows a normal distribution
 
-```{r number of observations in each group}
-ggplot(df, aes(x = flowering_group)) +
-  geom_bar()+
-  labs(title = "Number of observations in flowering gorups",
-       x = "Flowering Group",
-       y = "Number of observations") +
-  theme_classic()
-
-```
-
-We have uneven number of observations in flowering groups. It can reduce power of our ANOVA analysis, thus, it is better to stick to non-parametric Kruskal-Wallis test.
-
-```{r shapiro_1}
+```{r shapiro_1, echo=FALSE}
 shapiro_test_result <- df %>%
   group_by(flowering_group) %>%
   summarise(p_value = shapiro.test(productivity)$p.value)
@@ -176,9 +172,25 @@ print(shapiro_test_result)
 
 ```
 
-The observations are independent and we mostly have normal distributions. Test for homogeneity of variances between groups will likely show that there is no homogeneity, which is expected, as we have several groups which do not follow normal distribution. It will not introduce a massive bias, but we should be careful when interpreting results.
+The observations are independent and we mostly have normal distributions. Test for homogeneity of variances between groups will likely show that there is no homogeneity, which is expected, as we have several groups which do not follow normal distribution. It will not introduce a massive bias, but we should be careful when interpreting results. 
 
-In this case we can use ANOVA for this data. Let's do it!
+Additionally, we can compare number of observations between flowering groups, as disbalance between sizes of groups can introduce bias and inaccuracies in our results.
+
+```{r number of observations in each group, echo=FALSE, warning=FALSE}
+ggplot(df, aes(x = flowering_group, fill = flowering_group)) +
+  geom_bar()+
+  labs(title = "Number of observations in flowering gorups",
+       x = "Flowering Group",
+       y = "Number of observations") +
+  theme_classic()
+
+```
+
+We have uneven number of observations in flowering groups. It can reduce power of our ANOVA analysis, so we should compare results of ANOVA with non-parametric Kruskal-Wallis test, which is more suitable in this situation (it is a non-parametric alternative to one-way ANOVA that doesn't assume normality of the residuals).
+
+#### ANOVA 
+
+Firstly, let's perform ANOVA analysis
 
 ```{r Anova, echo=FALSE, message=FALSE, warning=FALSE}
 anova_result <- aov(productivity ~ flowering_group, data = df)
@@ -192,7 +204,9 @@ summary(anova_result)
 The ANOVA results show a significant difference among at least two of the groups in the variable 'productivity' based on the 'flowering_group' factor.
 The p-value (Pr(>F)) is highly significant (less than 0.001), indicating that there are significant differences among the groups.
 
-But residuals have not  normal distribution, in this case we will re-check our data with the Kruskal-Wallis test (It is a non-parametric alternative to one-way ANOVA that doesn't assume normality of the residuals)
+#### Kruskal-Wallis
+
+But residuals do not have normal distribution, in this case we will re-check our data with the Kruskal-Wallis test
 
 ```{r kruskal_test_1, echo=FALSE, message=FALSE, warning=FALSE}
 kruskal_test_result <- kruskal.test(productivity ~ flowering_group, data = df)
@@ -211,13 +225,13 @@ pvals_posthoc1=posthoc1$p.value
 corrplot(as.matrix(pvals_posthoc1), is.corr=F, method="number", col = COL2('RdBu'), type = 'lower',tl.srt = 60, tl.cex=1.5, number.cex = 1.2, cl.cex = 1.2, col.lim = c(0, 1))
 ```
 
-From the output of the Wilcoxon rank sum test with Bonferron correction, it follows that there are statistically significant differences in performance (productivity) between the different flowering group variants. The p-values are below the 0.05 for most pairs of groups.
+From the output of the Wilcoxon rank sum test with Bonferroni correction, it follows that there are statistically significant differences in performance (productivity) between the different flowering group variants. The p-values are below the 0.05 for most pairs of groups.
 
 Specifically, p-values < 0.05 indicate that there is a statistically significant difference in performance between findings 2 and 1, 3 and 1, 3 and 1.5, 3.5 and 1, 3.5 and 1.5, 4 and 1, 4.5 and 1, 4.5 and 3, 5 and 2, 5 and 3-4.5. p-values=0 (extremely close to the 0) indicates very high significance values. 
 
 Thus, it is possible to disable that the blooming_group group level affects productivity, and individual pairs of groups have characteristic significant differences.
 
-## Second hypothesis
+### Second hypothesis
 
 Let's visualize how changes oil content in different maturation groups (the more group number the more late-maturing). 
 
@@ -242,7 +256,7 @@ ggplot(df, aes(x = maturation_group, y = oil_content, fill = maturation_group)) 
   labs(title = "Violin Plot of Productivity by Flowering Group",
        x = "Flowering Group",
        y = "Productivity") +
-  theme_minimal() +
+  theme_classic() +
   labs(title = "Boxplot of Oil Content by Maturation Group",
        x = "Maturation Group",
        y = "Oil Content") +
@@ -262,6 +276,8 @@ shapiro_test_result$is_normal <- ifelse(shapiro_test_result$p_value < 0.05, "Not
 print(shapiro_test_result)
 
 ```
+
+#### Kruskal-Wallis
 
 The observations are independent and mostly distributed not normal, thus, it is better to stick to non-parametric Kruskal-Wallis test. 
 Let's see on the Kruskal-Wallis test results.
@@ -283,65 +299,96 @@ pvals_posthoc2=posthoc2$p.value
 corrplot(as.matrix(pvals_posthoc2),is.corr=F, method="number", col = COL2('RdBu'), type = 'lower',tl.srt = 60, tl.cex=1.5, number.cex = 1.5, cl.cex = 1.2, col.lim = c(0, 1))
 ```
 
-From the output of the Wilcoxon rank sum test with Bonferron correction, it follows that there are statistically significant differences in Oil Content among some of Maturation Groups. 
+From the output of the Wilcoxon rank sum test with Bonferroni correction, it follows that there are statistically significant differences in Oil Content among some of Maturation Groups. 
 
 Specifically, p-values < 0.05 indicate that there is a statistically significant difference in mean ranks of the Oil Content between maturation groups 1 and 2, 1 and 3, 1 and 4, 5 and 2, 5 and 3, 5 and 4. p-values=0 (extremely close to the 0) indicates very high significance values. 
 
 Thus, it is possible to say that the Oil Maturation group level affects Oil Content, and individual pairs of groups have significant differences in Oil Content mean ranks.
 
-# Linear models
+## Generalized linear models
 
-## First model
+### First model
 
 ```{r l1 , warning=FALSE}
 lm_model_0 <- lm(productivity ~ protein_content, data = df)
 lm_model_1 <- lm(productivity ~ oil_content, data = df)
 lm_model <- lm(productivity ~ protein_content + oil_content, data = df)
+```
 
-
+```{r, include=FALSE}
 aic_lm0 <- AIC(lm_model_0)
 aic_lm1 <- AIC(lm_model_1)
 aic_lm <- AIC(lm_model)
+```
 
+```{r, echo=FALSE}
 cat("AIC for Linear Model with only protein_content :", aic_lm0, "\n")
+```
+
+```{r, echo=FALSE}
 cat("AIC for Linear Model with only oil_content:", aic_lm1, "\n")
+```
+
+```{r, echo=FALSE}
 cat("AIC for Linear Mode with both factors:", aic_lm, "\n")
 ```
 
-In this case, the model that includes both factors (protein_content and oil_content) has the smallest (though not by much) AIC value (13451.16), which means that it is preferable to models that include only one of these factors.
+In this case, the model that includes both factors (protein_content and oil_content) has the smallest (though not by much) AIC value (13451.16). It means that it is preferable to use this model, than models that include only one of these factors.
+
 We add id as a dummy variable to account for repeated measures and compare with a mixed model that includes individual ids as random effects, accounting for the correlation between repeated measures for the same id.
 
 
 ```{r l2 , warning=FALSE}
 lm_id_model <- lm(productivity ~ protein_content + oil_content + factor(id), data = df)
 mixed_model <- lmer(productivity ~ protein_content + oil_content + (1 | id), data = df) 
+```
 
+```{r, include=FALSE}
 aic_lm_id <- AIC(lm_id_model)
 aic_mixed <- AIC(mixed_model)
+```
 
+```{r, echo=FALSE}
 cat("AIC for Linear Model with ID:", aic_lm_id, "\n")
-cat("AIC for Mixed Model:", aic_mixed, "\n")
+```
 
+```{r, echo=FALSE}
+cat("AIC for Mixed Model:", aic_mixed, "\n")
+```
+
+```{r, include=FALSE}
 mixed_model <- lmer(productivity ~ protein_content + oil_content + (1 | id), data = df) 
 summary(mixed_model)
 ```
 
 Thus, the Linear Model with ID has the best AIC score and provides more information compared to the others.
 
-Let's check with R step function for all this data:
+Let's check whether R step function will give us the same linear model.
 
 ```{r l3 , warning=FALSE, echo= FALSE}
 full_model <- lm(productivity ~ protein_content + oil_content + factor(id), data = df)
 
 step_model <- step(full_model, direction = "both", trace = 0)
 
-summary(step_model)
+step_model$call
 ```
-Well, yes, the best call for such parameters was for Call:
-lm(formula = productivity ~ protein_content + oil_content + factor(id), 
-    data = df)
 
-## Second model
+Step function has found the best linear model which is the same as ours.
+
+Here are the coefficients of this model:
+
+```{r}
+## Coefficients:
+##                 Estimate Std. Error t value Pr(>|t|)    
+## (Intercept)     220.9272    57.9185   3.814 0.000145 ***
+## protein_content  -6.9005     0.7540  -9.152  < 2e-16 ***
+## oil_content       9.0148     1.4792   6.094  1.6e-09 ***
+```
+
+
+Weights for `protein_content` and `oil_content` are significant (p-value < 0.05) and equal to -7 and 9 accordingly. 
+
+### Second model
 
 We want to create a model to predict site of yielding depend on other data.
 
@@ -371,7 +418,24 @@ However, we are going to improve model predictive ability via adding new paramet
 
 ```{r glm_site_2 , warning=FALSE, echo= FALSE}
 glm_site2 <- glm(site ~ productivity + vegetation_period + protein_content + oil_content + growth_type + flowering_group + maturation_group + leaf_shape + corolla_colour + pubescence_colour, family = binomial, data = df_without_na)
-summary(glm_site2)
+glm_site2$call
+```
+Here are the coefficients of this model. Due to the complexity of our model, we show only significant coefficients.
+
+```{r}
+
+## Coefficients:
+##                                Estimate Std. Error z value Pr(>|z|)    
+## productivity                    0.01688    0.00208   8.114 4.89e-16 ***
+## vegetation_period               0.13485    0.01434   9.406  < 2e-16 ***
+## protein_content                -0.09627    0.04210  -2.287 0.022215 *  
+## oil_content                    -0.70514    0.07623  -9.250  < 2e-16 ***
+## flowering_group3.5             -1.94541    0.85559  -2.274 0.022980 *  
+## flowering_group4               -1.89358    0.77185  -2.453 0.014155 *  
+## maturation_group2              -1.29011    0.65618  -1.966 0.049287 *  
+## maturation_group3              -2.37273    0.68563  -3.461 0.000539 ***
+## maturation_group4              -5.69553    0.82135  -6.934 4.08e-12 ***
+
 ```
 
 AIC of new model became smaller that means that new model now works better.
